@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// 1. CÁC ENUM
+enum Role {
+  ADMIN
+  COACH
+  PLAYER
+}
+
+enum AttendanceStatus {
+  CONFIRMED
+  DECLINED
+  PENDING
+}
+
+enum TeamStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum EventType {
+  MATCH
+  TRAINING
+  MEETING
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Condition {
+  GOOD
+  FAIR
+  POOR
+}
+
+enum TransType {
+  INCOME
+  EXPENSE
+}
+
+// 2. MODEL ĐỘI BÓNG
+model Team {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  logo          String?
+  inviteCode    String?        @unique
+  status        TeamStatus     @default(PENDING)
+  members       User[]        
+  events        Event[]       
+  tasks         Task[]        
+  inventories   Inventory[]   
+  transactions  Transaction[] 
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  tactics       Tactic[]
+  messages      Message[]
+  notifications Notification[]
+}
+
+// 3. MODEL NGƯỜI DÙNG
+model User {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  email            String            @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  avatarUrl        String?
+  role             Role              @default(PLAYER)
+  teamId           String?           @db.ObjectId
+  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  profile          PlayerProfile?
+  assignedTasks    TaskAssignee[]
+  attendances      Attendance[]
+  createdTasks     Task[]            @relation("TaskCreator")
+  matchStats       PlayerMatchStat[] 
+  sentMessages     Message[]         @relation("SentMessages")       
+  receivedMessages Message[]         @relation("ReceivedMessages")  
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([teamId, role]) // Compound index tối ưu việc lấy danh sách thành viên theo vai trò
+}
+
+// 4. HỒ SƠ CẦU THỦ
+model PlayerProfile {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String   @unique @db.ObjectId
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jerseyNumber    Int?
+  position        String?  
+  nationality     String?
+  age             Int?
+  height          String?
+  weight          String?
+  status          String   @default("available")
+  rating          Float    @default(0.0)
+  pointsPerGame   Float    @default(0.0) 
+  reboundsPerGame Float    @default(0.0) 
+  assistsPerGame  Float    @default(0.0) 
+  stealsPerGame   Float    @default(0.0) 
+  blocksPerGame   Float    @default(0.0) 
+  matchesPlayed   Int      @default(0)
+}
+
+// 5. MODULE QUẢN LÝ
+model Event {
+  id           String       @id @default(auto()) @map("_id") @db.ObjectId
+  teamId       String       @db.ObjectId
+  team         Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  title        String
+  type         EventType    
+  date         DateTime     
+  location     String?
+  matchDetails Match?
+  attendees    Attendance[]
+  createdAt    DateTime     @default(now())
+
+  @@index([teamId, date]) // Tối ưu lấy sự kiện theo đội bóng và sắp xếp theo ngày
+}
+
+model Attendance {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  eventId   String   @db.ObjectId
+  userId    String   @db.ObjectId
+  status    AttendanceStatus @default(PENDING)   
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId, status]) // Tối ưu việc đếm số lượng người tham gia theo trạng thái
+}
+
+// 6. THÔNG TIN TRẬN ĐẤU
+model Match {
+  id             String  @id @default(auto()) @map("_id") @db.ObjectId
+  eventId        String  @unique @db.ObjectId
+  event          Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  opponent       String
+  isHome         Boolean @default(true)
+  matchType      String  
+  teamPoints     Int?
+  opponentPoints Int?    
+  fouls          Int?    
+  turnovers      Int?
+  rebounds       Int?    
+  assists        Int?
+  steals         Int?    
+  blocks         Int?
+  playerStats    PlayerMatchStat[] 
+}
+
+model PlayerMatchStat {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  matchId   String @db.ObjectId
+  userId    String @db.ObjectId
+  points    Int    @default(0)
+  rebounds  Int    @default(0)
+  assists   Int    @default(0)
+
+  match     Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, userId])
+}
+
+model Task {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  teamId      String         @db.ObjectId
+  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueDate     DateTime?
+  priority    Priority       @default(MEDIUM)
+  status      TaskStatus     @default(TODO)
+  category    String?
+  creatorId   String         @db.ObjectId
+  creator     User           @relation("TaskCreator", fields: [creatorId], references: [id])
+  assignees   TaskAssignee[]
+  createdAt   DateTime       @default(now())
+
+  @@index([teamId, status]) // Tối ưu filter task theo status của team
+}
+
+model TaskAssignee {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  taskId String @db.ObjectId
+  userId String @db.ObjectId
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+}
+
+model Inventory {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  teamId       String    @db.ObjectId
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name         String
+  category     String
+  quantity     Int       @default(0)
+  minQuantity  Int       @default(0)
+  condition    Condition @default(GOOD)
+  location     String?
+  lastChecked  DateTime  @default(now())
+
+  @@index([teamId, category]) // Tối ưu phân loại đồ đạc theo danh mục
+}
+
+model Transaction {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  teamId      String    @db.ObjectId
+  team        Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  description String
+  amount      Float     
+  transType   TransType
+  category    String
+  transDate   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([teamId, transDate]) // Rất quan trọng để generate báo cáo tài chính theo thời gian
+}
+
+model Tactic {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  teamId    String   @db.ObjectId
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name      String
+  players   Json     
+  notes     Json     
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teamId])  
+}
+
+model Message {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  senderId   String   @db.ObjectId
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  teamId     String?  @db.ObjectId
+  team       Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  receiverId String?  @db.ObjectId
+  receiver   User?    @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  text       String
+  readBy     String[] @db.ObjectId
+  createdAt  DateTime @default(now())
+
+  @@index([teamId, createdAt]) // Tối ưu load lịch sử chat
+  @@index([senderId, receiverId])
+}
+
+model Notification {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  teamId    String   @db.ObjectId
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO")
+  readBy    String[] @db.ObjectId     
+  createdAt DateTime @default(now())
+
+  @@index([teamId, createdAt]) // Tối ưu load notification mới nhất
+}

@@ -1,10 +1,8 @@
-import { Routes, Route } from 'react-router-dom';
+import { AppRouter } from './routes/AppRouter';
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<div className="p-8 text-2xl font-bold">Ball Hub 🏆</div>} />
-    </Routes>
+    <AppRouter />
   );
 }
 
